@@ -1,0 +1,23 @@
+table {
+  background-color: #eee;
+  margin: 4px;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  font-size: small;
+  border-collapse: collapse;
+}
+
+td {
+  border: 1px solid black;
+  padding: 2px;
+}
+
+.topBar {
+
+  background: #404040;
+  padding: 8px;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  color: #C0C0C0;
+  font-size: 24px;
+  font-weight: bolder;
+  border-bottom: 1px solid black;
+}

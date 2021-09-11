@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "CommonJS",
+        "jsx": "react",
+        "moduleResolution": "node",
+        "lib": [
+            "dom",
+            "ES2020"
+        ],
+        "esModuleInterop": true
+    },
+    "include": [
+        "client/**/*",
+        "server/server.ts",
+        "client/components"
+    ]
+}
