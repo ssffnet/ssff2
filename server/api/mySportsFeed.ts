@@ -17,12 +17,10 @@ export default async function feed(request): Promise<unknown> {
     return result.data;
 }
 
-
 export interface IPlayersFeed {
     lastUpdatedOn: Date,
     players: Array<IRosterPlayer>
 }
-
 
 export interface IRosterPlayer {
     player: {
@@ -64,7 +62,6 @@ export interface IRosterPlayer {
     }
 }
 
-
 export interface IScoringTable {
     Week: number,
     Time: string,
@@ -74,12 +71,12 @@ export interface IScoringTable {
     ScoreType: string,
     ScoreMethod: string,
     Yards: number,
-    Points: number,
-    FPoints: number,  // decimal
-    Attempts: string,
-    OwnerID: number
+    Points?: number,
+    FPoints?: number,  // decimal
+    Attempts: number,
+    Success: number,
+    OwnerID?: number
 }
-
 
 export interface IPlayerStats {
     player: {
@@ -91,7 +88,6 @@ export interface IPlayerStats {
     },
     playerStats: Array<IStats>
 }
-
 
 export interface IBoxScoreFeed {
     game: {
@@ -106,9 +102,10 @@ export interface IBoxScoreFeed {
         home: {
             players: Array<IPlayerStats>
         }
-    }
+    },
+    lastUpdatedOn: Date,
+    scoring
 }
-
 
 export interface IPlayByPlayFeed {
     game: {
@@ -119,57 +116,6 @@ export interface IPlayByPlayFeed {
     plays: Array<IPlay>
 
 }
-
-
-export interface IPlay {
-
-    description: string,
-    kick: {
-        isEndedWithTouchdown: boolean,
-        team: ITeam
-    },
-    punt: {
-        isEndedWithTouchdown: boolean,
-        team: ITeam
-    },
-    rush: {
-        isEndedWithTouchdown: boolean,
-        team: ITeam,
-        rushingPlayer: IPBPPlayer,
-        yardsRushed: number,
-        isTwoPointConversion: boolean
-    },
-    pass: {
-        isEndedWithTouchdown: boolean,
-        team: ITeam,
-        passingPlayer: IPBPPlayer,
-        receivingPlayer: IPBPPlayer,
-        totalYardsGained: number,
-        isTwoPointConversion: boolean,
-        isCompleted: true
-    },
-    penalty: {},
-    fieldGoalAttempt: {
-        isGood: boolean,
-        isFirstDownPenalty: boolean,
-        team: ITeam,
-        kickingPlayer: IPBPPlayer,
-        yardsKicked: number
-    },
-    extraPointAttempt: {
-        isGood: boolean,
-        isFirstDownPenalty: boolean,
-        team: ITeam,
-        kickingPlayer: IPBPPlayer,
-        yardsKicked: number
-    }
-    playStatus: {
-        quarter: number,
-        secondsElapsed: number
-    }
-
-}
-
 
 export interface IStats {
     passing: {
@@ -285,7 +231,6 @@ export interface IStats {
     }
 }
 
-
 export interface IWeather {
     type: string,
     description: string,
@@ -375,10 +320,191 @@ export interface IByeWeek {
     byeWeeks: Array<number>
 }
 
-export interface IPBPPlayer {
+export interface IPlayPlayer {
     id: string,
     firstName: string,
     lastName: string,
     position: string,
     jerseyNumber: number
 }
+
+export interface IPlayPosition {
+    team: ITeam,
+    yardLine: number,
+    point: number | null
+}
+
+export interface IPlayFumble extends IPlayBase {
+    fumblingTeam: ITeam,
+    fumblingPlayer: IPlayPlayer,
+    fumbledAtPosition: IPlayPosition,
+    forcedByPlayer: IPlayPlayer,
+    recoveringTeam: ITeam,
+    recoveringPlayer: IPlayPlayer,
+    recoveredAtPosition: IPlayPosition,
+    stoppedAtPosition: IPlayPosition,
+    isMuff: boolean,
+    isOutOfBounds: boolean,
+    isTackled: boolean,
+    isEndedWithTouchdown: boolean,
+    isSafety: boolean,
+    yardsFromLineOfScrimmage: number,
+    yardsFumbled: number,
+    yardsRecovered: number
+};
+
+export interface IPlayPass extends IPlayBase {
+    passingPlayer: IPlayPlayer,
+    passedFromPosition?: IPlayPosition,
+    receivingPlayer: IPlayPlayer,
+    receivedAtPosition?: IPlayPosition,
+    interceptingPlayer?: IPlayPlayer,
+    interceptedAtPosition?: IPlayPosition,
+    passType: null,
+    passDirection: null,
+    passDistance: null,
+    stoppedAtPosition: IPlayPosition,
+    isCompleted: boolean,
+    isOutOfBounds: boolean,
+    isTackled: boolean,
+    isEndedWithTouchdown: boolean,
+    isTwoPointConversion: boolean,
+    yardsPassed: number,
+    yardsRushed: number,
+    yardsIntercepted: number,
+    totalYardsGained: number,
+}
+
+export interface IPlayPenalty {
+    team: ITeam,
+    penalizedPlayer: IPlayPlayer,
+    enforcedAtPosition: IPlayPosition,
+    description: string,
+    isCancelsPlay: boolean,
+    yardsPenalized: number
+};
+
+export interface IPlayRush extends IPlayBase {
+    rushingPlayer: IPlayPlayer,
+    rushedFromPosition: IPlayPosition,
+    stoppedAtPosition: IPlayPosition,
+    isTackled: boolean,
+    isEndedWithTouchdown: boolean,
+    isTwoPointConversion: boolean,
+    isOutOfBounds: boolean,
+    rushType: null,
+    rushDirection: null,
+    yardsRushed: number,
+}
+
+export interface IPlayBase {
+    team: ITeam,
+    soloTacklingPlayer: IPlayPlayer,
+    assistedTacklingPlayer1?: IPlayPlayer,
+    assistedTacklingPlayer2?: IPlayPlayer,
+    isFirstDownPenalty: boolean,
+    isNoPlay: boolean,
+    subPlays: IPlaySubPlays,
+    penalties: Array<IPlayPenalty>
+}
+
+export interface IPlaySack extends IPlayBase {
+    passingPlayer: IPlayPlayer,
+    sackedAtPosition: IPlayPosition,
+    isFirstDownPenalty: boolean,
+    isNoPlay: boolean,
+    yardsLost: number,
+}
+
+export interface IPlayPunt extends IPlayBase {
+    kickingTeam: ITeam,
+    kickingPlayer: IPlayPlayer,
+    kickedFromPosition: IPlayPosition,
+    blockingPlayer: null,
+    retrievingTeam: ITeam,
+    retrievingPlayer: IPlayPlayer,
+    retrievedAtPosition: IPlayPosition,
+    stoppedAtPosition: IPlayPosition,
+    isBlocked: boolean,
+    isTouchback: boolean,
+    isSafety: boolean,
+    isOutOfBounds: boolean,
+    isTouchdown: boolean,
+    isFairCatch: boolean,
+    isLanded: boolean,
+    isOnside: boolean,
+    yardsKicked: number,
+    yardsReturned: number,
+}
+
+export interface IPlayKick extends IPlayPunt {
+    // same as Punt
+}
+
+export interface IPlayFG {
+    team: ITeam,
+    kickingPlayer: IPlayPlayer,
+    centerPlayer: IPlayPlayer,
+    holdingPlayer: IPlayPlayer,
+    kickedFromPosition: IPlayPosition,
+    blockingPlayer: IPlayPlayer,
+    blockedAtPosition: IPlayPosition,
+    isBlocked: boolean,
+    isGood: boolean,
+    yardsKicked: number,
+    isFirstDownPenalty: boolean,
+    isNoPlay: boolean,
+    subPlays: IPlaySubPlays,
+    penalties: Array<IPlayPenalty>
+}
+
+export interface IPlayExtraPoint extends IPlayFG {
+    // same as IPlayFG
+}
+
+export interface IPlay {
+    description: string,
+    kick: IPlayKick,
+    sack: IPlaySack,
+    punt: IPlayPunt,
+    rush: IPlayRush,
+    pass: IPlayPass,
+    penalty: IPlayPenalty,
+    fieldGoalAttempt: IPlayFG,
+    extraPointAttempt: IPlayExtraPoint
+    playStatus: IPlayStatus,
+    fumble: IPlayFumble,
+}
+
+export interface IPlayStatus {
+    quarter: number,
+    secondsElapsed: number,
+    teamInPossession: ITeam,
+    overallDriveNum: number,
+    teamDriveNum: number,
+    currentDown: number,
+    yardsRemaining: number,
+    lineOfScrimmage: IPlayPosition,
+    awayPlayersOnField: Array<IPlayPlayer>,
+    homePlayersOnField: Array<IPlayPlayer>,
+}
+
+export interface IPlayLateralPass extends IPlayBase {
+    passingPlayer: IPlayPlayer,
+    passedFromPosition: IPlayPosition,
+    receivingPlayer: IPlayPlayer,
+    receivedAtPosition: IPlayPosition,
+    stoppedAtPosition: IPlayPosition,
+    isOutOfBounds: boolean,
+    isTackled: boolean,
+    isEndedWithTouchdown: boolean,
+    isTwoPointConversion: boolean,
+    yardsGained: number,
+}
+
+export interface IPlaySubPlays extends
+    Array<{
+        rush?: IPlayRush | Array<IPlayRush>,
+        fumble?: IPlayFumble | Array<IPlayFumble>,
+        lateralPass?: Array<IPlayLateralPass>
+    }> { }

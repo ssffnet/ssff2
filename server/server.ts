@@ -1,34 +1,16 @@
 import express from 'express';
-import sql from 'mssql';
 import cors from 'cors';
-import { SmsClient, SmsSendResult } from '@azure/communication-sms';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
-import Jwt from 'express-jwt';
-import axios, { AxiosResponse } from 'axios';
+import axios from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
 import * as scores from './api/scores';
 import feed, { IPlayersFeed, ISchedule } from './api/mySportsFeed'
-
-const connectionString = "endpoint=https://payg-comms.communication.azure.com/;accesskey=/is1ZkXA1AKmiaeS/9phyZHjt/iqNRiISwQicgnpftxQocwB2D2iuFxMU3IuSt/VXR9gkPlLPwjUl3yHvSkvjQ==";
-
-// Instantiate the SMS client
-const smsClient = new SmsClient(connectionString);
+import * as sql from './api/sql';
+import * as sms from './api/sms';
 
 
-async function sendSms(): Promise<SmsSendResult[]> {
-
-    const sendResults = await smsClient.send({
-        from: "+18332560618",
-        to: ["+12532552284"],
-        message: "Hello World 👋🏻 via SMS"
-    });
-
-    console.log(JSON.stringify(sendResults));
-
-    return sendResults;
-}
 
 
 const app = express();
@@ -42,42 +24,7 @@ app.use(cookieParser());
 // console.log that your server is up and running
 app.listen(port, () => console.log(`Listening on port ${port}`));
 
-var dbConfig = {
-    server: "ssffsql.database.windows.net", // Use your SQL server name
-    database: "ssffdb", // Database to connect to
-    user: "ssff", // Use your username
-    password: "Ky01HW#DuN8d", // Use your password
-    port: 1433,
-    // Since we're on Windows Azure, we need to set the following options
-    options: {
-        encrypt: true
-    }
-};
 
-var conn = new sql.ConnectionPool(dbConfig);
-
-(async () => {
-    await conn.connect();
-})();
-
-
-
-
-async function sqlQuery(query: string): Promise<Array<object>> {
-
-    //console.log(`SQL query: ${query}`);
-
-    return new Promise((resolve, reject) => {
-        conn.query(query, async function (err, results) {
-            if (err) {
-                return reject(JSON.stringify(err));
-            }
-            const jsonResult = results?.recordset?.[0]?.['JSON_F52E2B61-18A1-11d1-B105-00805F49916B'];
-            resolve(jsonResult ? JSON.parse(jsonResult) : results);
-        });
-    });
-
-}
 
 
 
@@ -94,7 +41,7 @@ app.post('/login', (req, res) => {
         return;
     }
 
-    sqlQuery(query)
+    sql.query(query)
         .then(recordSet => {
 
             const ownerId = recordSet[0]['OwnerId'];
@@ -127,22 +74,22 @@ app.post('/login', (req, res) => {
 app.post('/api/standings', async (req, res) => {
     console.log(`/standings`);
     const ownerId = req.body.ownerId;
-    conn.query(`SELECT * FROM FFOwners ORDER BY Pct DESC, PF DESC FOR JSON AUTO;`, function (err, results) {
-        if (err) {
-            console.log(err);
-            return;
-        }
-        const key = Object.keys(results.recordset[0])[0];
-        const json = results.recordset[0][key];
-        res.send(json);
-    });
+    // sql.query(`SELECT * FROM FFOwners ORDER BY Pct DESC, PF DESC FOR JSON AUTO;`, function (err, results) {
+    //     if (err) {
+    //         console.log(err);
+    //         return;
+    //     }
+    //     const key = Object.keys(results.recordset[0])[0];
+    //     const json = results.recordset[0][key];
+    //     res.send(json);
+    // });
 });
 
 
-app.post('/api/scores', async (req, res) => {
+app.get('/api/scores', async (req, res) => {
     console.log(`/api/scores`);
 
-    scores.getScoring(1);
+    scores.getScoring(2);
 
     res.send({});
 });
@@ -150,19 +97,16 @@ app.post('/api/scores', async (req, res) => {
 
 app.get('/api/roster/teams', async (req, res) => {
     console.log(`/standings`);
-    conn.query(`SELECT [TEAMNAME], [OWNERID], [TEAMSHORTNAME] FROM [FFOWNERS] FOR JSON AUTO;`, function (err, results) {
-        if (err) {
-            console.log(err);
-            return;
-        }
-        const key = Object.keys(results.recordset[0])[0];
-        const json = results.recordset[0][key];
-        res.send(json);
-    });
+    // conn.query(`SELECT [TEAMNAME], [OWNERID], [TEAMSHORTNAME] FROM [FFOWNERS] FOR JSON AUTO;`, function (err, results) {
+    //     if (err) {
+    //         console.log(err);
+    //         return;
+    //     }
+    //     const key = Object.keys(results.recordset[0])[0];
+    //     const json = results.recordset[0][key];
+    //     res.send(json);
+    // });
 });
-
-
-
 
 
 app.get('/api/rosters', async (req, res) => {
@@ -221,7 +165,7 @@ app.get('/api/rosters', async (req, res) => {
         map((c, i) => players.slice(chunkSize * i, chunkSize * (i + 1)));
 
 
-    await sqlQuery('DELETE FROM Players_temp;');
+    await sql.query('DELETE FROM Players_temp;');
 
     chunks.forEach(async chunk => {
 
@@ -253,7 +197,7 @@ app.get('/api/rosters', async (req, res) => {
             Active          bit
         );`;
 
-        await sqlQuery(query);
+        await sql.query(query);
 
     });
 
@@ -376,7 +320,7 @@ app.get('/api/rosters', async (req, res) => {
             
         COMMIT;`;
 
-    await sqlQuery(query);
+    await sql.query(query);
 
     res.json(players);
 
@@ -439,7 +383,7 @@ app.get('/api/schedule', async (req, res) => {
 
     });
 
-    await sqlQuery('DELETE FROM NFLSchedule_temp;');
+    await sql.query('DELETE FROM NFLSchedule_temp;');
 
     const gameJson = JSON.stringify(games).replace(/'/g, "''");
 
@@ -464,7 +408,7 @@ app.get('/api/schedule', async (req, res) => {
 
     console.log(query);
 
-    await sqlQuery(query);
+    await sql.query(query);
 
     res.json(games);
 
@@ -523,7 +467,7 @@ app.get('/api/rotowire', async (req, res) => {
     // span:'OG'
     // text:'LAC'
 
-    await sqlQuery('DELETE FROM RotoPlayers;');
+    await sql.query('DELETE FROM RotoPlayers;');
 
     const query = `
         INSERT INTO RotoPlayers
@@ -543,15 +487,15 @@ app.get('/api/rotowire', async (req, res) => {
 
     console.log(query);
 
-    await sqlQuery(query);
+    await sql.query(query);
 
     return;
 });
 
 
-app.get('/api/scores', async (req, res) => {
+app.get('/api/scoresw', async (req, res) => {
 
-    console.log('/api/scores');
+    console.log('/api/scoresw');
 
     const lines = await scores.getBoxScore('2021-2022-regular', 1, 64893);
 
@@ -581,11 +525,10 @@ app.get('/api/scores', async (req, res) => {
 
     console.log(query);
 
-    await sqlQuery(query);
+    await sql.query(query);
 
     res.json({});
 });
-
 
 
 async function downloadRotowireDepthChart() {
@@ -674,7 +617,6 @@ function parseDepthChartHtml(depthChartHtml: string) {
 }
 
 
-
 app.get('/api/rotowire/depthchart', async (req, res) => {
 
     console.log('/api/rotowire/depthchart');
@@ -685,7 +627,7 @@ app.get('/api/rotowire/depthchart', async (req, res) => {
 
     // depthChart.length = 4;
 
-    await sqlQuery('DELETE FROM Depth;');
+    await sql.query('DELETE FROM Depth;');
 
     const query = `
         INSERT INTO Depth
@@ -702,7 +644,7 @@ app.get('/api/rotowire/depthchart', async (req, res) => {
             Depth	int
         );`
 
-    await sqlQuery(query);
+    await sql.query(query);
 
     //console.log(query);
 
@@ -713,9 +655,10 @@ app.get('/api/rotowire/depthchart', async (req, res) => {
 
 app.get('/sms', async (req, res) => {
     console.log(`/sms`);
-    const result = await sendSms();
+    const result = await sms.send("Hello World 👋🏻 via SMS");
     res.send(result);
 });
+
 
 app.get('/api/depthChartOut', async (req, res) => {
 
@@ -743,7 +686,7 @@ app.get('/api/depthChartOut', async (req, res) => {
         OwnerID: number
     }
 
-    const depth = (await sqlQuery(query)) as player[];
+    const depth = (await sql.query(query)) as player[];
 
     const byTeam: Record<string, Record<string, { name: string, depth: number, owned: boolean }[]>> = {};
 
@@ -806,9 +749,6 @@ app.get('/api/depthChartOut', async (req, res) => {
     res.json(html);
 
 });
-
-
-
 
 
 app.get('*', function (req, res) {
