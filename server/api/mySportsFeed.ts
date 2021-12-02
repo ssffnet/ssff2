@@ -112,6 +112,7 @@ export interface IPlayByPlayFeed {
         awayTeam: ITeam,
         homeTeam: ITeam,
         playedStatus: string,
+        id: string
     },
     plays: Array<IPlay>
 

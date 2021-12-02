@@ -9,12 +9,12 @@ import * as scores from './api/scores';
 import feed, { IPlayersFeed, ISchedule } from './api/mySportsFeed'
 import * as sql from './api/sql';
 import * as sms from './api/sms';
-
+import * as espn from './api/espn';
 
 
 
 const app = express();
-const port = process.env.PORT || 5001;
+const port = process.env.PORT || 5005;
 
 app.use(cors());
 app.use(express.json());
@@ -89,7 +89,7 @@ app.post('/api/standings', async (req, res) => {
 app.get('/api/scores', async (req, res) => {
     console.log(`/api/scores`);
 
-    scores.getScoring(2);
+    scores.getScoring(12);
 
     res.send({});
 });
@@ -127,7 +127,7 @@ app.get('/api/rosters', async (req, res) => {
     }
 
     const nameMap = {
-        'LA' : 'LAR'
+        'LA': 'LAR'
     }
 
     console.log(`/api/rosters : Downloaded ${playersFeed.players.length} players.`);
@@ -138,7 +138,6 @@ app.get('/api/rosters', async (req, res) => {
 
         const f = {
             PlayerIndex: p.id.toString(),
-            Espn: p.externalMappings.find(e => e.source == 'ESPN')?.id?.toString() || null,
             Name: `${p.firstName} ${p.lastName}`,
             OwnerID: null,
             LastName: p.lastName,
@@ -153,7 +152,6 @@ app.get('/api/rosters', async (req, res) => {
             DOB: p.birthDate,
             Exp: null,
             Rank: null,
-            RotoID: null,
             Active: true
         }
 
@@ -178,7 +176,6 @@ app.get('/api/rosters', async (req, res) => {
             OPENJSON(N\'${JSON.stringify(chunk).replace(/'/g, "''")}\', '$')
         WITH (
             PlayerIndex     varchar(8),
-            Espn            varchar(8),
             Name            nvarchar(64),
             OwnerID         smallint,
             LastName        nvarchar(64),
@@ -193,7 +190,6 @@ app.get('/api/rosters', async (req, res) => {
             DOB             datetime,
             Exp             smallint,
             Rank            smallint,
-            RotoID          smallint,
             Active          bit
         );`;
 
@@ -210,7 +206,7 @@ app.get('/api/rosters', async (req, res) => {
         INSERT INTO 
             Players_Updates
         SELECT
-            PT.PlayerIndex, GETUTCDATE(), 'add'
+            PT.PlayerIndex, GETUTCDATE(), 'add', PT.PlayerIndex, null
         FROM
             Players_temp PT
         LEFT JOIN
@@ -236,12 +232,12 @@ app.get('/api/rosters', async (req, res) => {
             PT.NFLTeam is not null;
 
 
-        -- Deactive Missing Players
+        -- Deactivate Missing Players
 
         INSERT INTO 
             Players_Updates
         SELECT
-            P.PlayerIndex, GETUTCDATE(), 'inactive'
+            P.PlayerIndex, GETUTCDATE(), 'inactive', 0, 1
         FROM
             Players P
         LEFT JOIN
@@ -269,6 +265,85 @@ app.get('/api/rosters', async (req, res) => {
 
 
         -- Update player info
+
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'num', PT.Number, P.Number
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.Number, 0) <> PT.Number;
+        
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'col', PT.College, P.College
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.College, '') <> PT.College;
+        
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'dob', PT.DOB, P.DOB
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.DOB, '') <> PT.DOB;
+        
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'height', PT.Height, P.Height
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.Height, '') <> PT.Height;
+        
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'weight', PT.Weight, P.Weight
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.Weight, 0) <> PT.Weight;
+
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'name', PT.Name, P.Name
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            P.Name <> PT.Name;
+
         UPDATE
             Players
         SET
@@ -276,7 +351,10 @@ app.get('/api/rosters', async (req, res) => {
             Players.Number = PT.Number,
             Players.College = PT.College,
             Players.Height = PT.Height,
-            Players.Weight = PT.Weight
+            Players.Weight = PT.Weight,
+            Players.LastName = PT.LastName,
+            Players.FirstName = PT.FirstName,
+            Players.Name = PT.FirstName + ' ' + PT.LastName
         FROM
             Players_temp PT
         JOIN
@@ -284,18 +362,18 @@ app.get('/api/rosters', async (req, res) => {
         ON
             P.PlayerIndex = PT.PlayerIndex
         WHERE
-            P.DOB <> PT.DOB OR
-            P.Number <> PT.Number OR
-            P.College <> PT.College OR
-            P.Height <> PT.Height OR
-            P.Weight <> PT.Weight;
-
+            ISNULL(P.DOB, '') <> PT.DOB OR
+            ISNULL(P.Number, 0) <> PT.Number OR
+            ISNULL(P.College, '') <> PT.College OR
+            ISNULL(P.Height, '') <> PT.Height OR
+            ISNULL(P.Weight, 0) <> PT.Weight OR
+            ISNULL(P.Name, '') <> PT.Name;
 
         -- Team Change
         INSERT INTO 
             Players_Updates
         SELECT
-            P.PlayerIndex, GETUTCDATE(), 'team'
+            P.PlayerIndex, GETUTCDATE(), 'team', PT.NFLTeam, P.NFLTeam
         FROM
             Players P
         JOIN
@@ -303,7 +381,7 @@ app.get('/api/rosters', async (req, res) => {
         ON
             P.PlayerIndex = PT.PlayerIndex
         WHERE
-            P.NFLTeam <> PT.NFLTeam;
+            ISNULL(P.NFLTeam, '') <> PT.NFLTeam;
         
         UPDATE
             Players
@@ -316,9 +394,38 @@ app.get('/api/rosters', async (req, res) => {
         ON
             P.PlayerIndex = PT.PlayerIndex
         WHERE
-            P.NFLTeam <> PT.NFLTeam;
+            ISNULL(P.NFLTeam, '') <> PT.NFLTeam;
+
+        -- position change
+        INSERT INTO 
+            Players_Updates
+        SELECT
+            P.PlayerIndex, GETUTCDATE(), 'pos', PT.POS, P.POS
+        FROM
+            Players P
+        JOIN
+            Players_temp PT
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.POS, '') <> PT.POS;
+
+        UPDATE
+            Players
+        SET
+            Players.POS = PT.POS
+        FROM
+            Players_temp PT
+        JOIN
+            Players P
+        ON
+            P.PlayerIndex = PT.PlayerIndex
+        WHERE
+            ISNULL(P.POS, '') <> PT.POS;
             
         COMMIT;`;
+
+    console.log(query);
 
     await sql.query(query);
 
@@ -649,6 +756,17 @@ app.get('/api/rotowire/depthchart', async (req, res) => {
     //console.log(query);
 
     res.json(depthChart);
+
+});
+
+
+app.get('/api/espn/rosters', async (req, res) => {
+
+    console.log('/api/espn/rosters');
+
+    const result = await espn.getRosters();
+
+    res.send(result);
 
 });
 

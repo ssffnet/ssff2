@@ -1,4 +1,5 @@
 import axios from "axios";
+import { TIMEOUT } from "dns";
 import * as React from "react";
 import styled from 'styled-components';
 
@@ -80,14 +81,42 @@ function depthChartOut(): void {
     return;
 }
 
+let autoUpdates = false;
+let timer;
+
 function getScores(): void {
+
+    autoUpdates = !autoUpdates;
+
+    // if (!autoUpdates) {
+    //     clearTimeout(timer);
+    //     console.log('stop');
+
+    // } else {
+    //     console.log('start');
+    //     timer = setInterval(() => {
+    //         axios.get(`/api/scores`)
+    //             .then(result => {
+    //                 console.log(result.data);
+    //             });
+    //     }, 1000 *  5);
+    // }
+
     axios.get(`/api/scores`)
+    .then(result => {
+        console.log(result.data);
+    });
+
+    return;
+}
+
+function getEspnRosters(): void {
+    axios.get(`/api/espn/rosters`)
         .then(result => {
             console.log(result.data);
         });
     return;
 }
-
 
 
 class Main extends React.Component {
@@ -102,6 +131,7 @@ class Main extends React.Component {
                 <button onClick={rotowireLogin}>RotoWire Login</button>
                 <button onClick={depthChartOut}>Print Depth Chart</button>
                 <button onClick={getScores}>GetScores</button>
+                <button onClick={getEspnRosters}>EspnRosters</button>
             </MainDiv>
         );
     }

@@ -1,5 +1,5 @@
 import feed, {
-    IBoxScoreFeed, IGame, IPlay, IPlayBase, IPlayByPlayFeed, IPlayerStats, IPlayFG, IPlayFumble, IPlayLateralPass, IPlayPlayer, IPlayPunt, IPlayRush, ISchedule, IScoringTable
+    IBoxScoreFeed, IGame, IPlay, IPlayBase, IPlayByPlayFeed, IPlayerStats, IPlayFG, IPlayFumble, IPlayLateralPass, IPlayPass, IPlayPlayer, IPlayPunt, IPlayRush, ISchedule, IScoringTable, ITeam
 } from './mySportsFeed';
 import * as sql from './sql';
 
@@ -21,7 +21,7 @@ export async function getScoring(week: number): Promise<void> {
     // get all the 
     const schedule = (await feed(`${season}/week/${week}/games.json`)) as ISchedule;
 
-    await sql.query(`DELETE FROM [Scoring] WHERE [Week]=${week}`);
+    await sql.query(`DELETE FROM [Scoring] WHERE [Week]=${week} AND [Manual]=0`);
 
 
     for await (const game of schedule.games) {
@@ -53,7 +53,6 @@ export async function getScoring(week: number): Promise<void> {
         await sql.query(query, true).catch(error => console.log(error));
 
     };
-
 
     const query = `        
         -- Update LA to LAR
@@ -162,6 +161,32 @@ export async function getScoring(week: number): Promise<void> {
         WHERE FFSchedule.Week=${week} and FFSchedule.Team2ID=GameTotals.OwnerID;
 
 
+        -- Set the Median score
+        UPDATE
+            FFSchedule
+        SET
+            FFSchedule.Median = Median1.Median 
+        FROM
+        (   SELECT TOP 1
+                PERCENTILE_CONT(0.5) 
+                    WITHIN GROUP (ORDER BY Team1Score + Team1FScore / 1000) OVER () AS Median
+            FROM   
+                FFSchedule 
+            WHERE
+                Week = ${week}
+        ) AS Median1
+        WHERE
+            Week = ${week}
+
+        `;
+
+    await sql.query(query, true).catch(error => console.log(error));
+
+
+    if (schedule.games.every(g => /^COMPLETED/.test(g.schedule.playedStatus))) {
+
+        // do finalize
+        const query = `        
         -- Update Fantasy Team Record
         -- ViewResults is a View that returns per/team fantasy game results
         UPDATE
@@ -226,16 +251,23 @@ export async function getScoring(week: number): Promise<void> {
             ViewStreak Streak
         WHERE
             FFOwners.OwnerID = Streak.team;
-`;
 
-    await sql.query(query, true).catch(error => console.log(error));
+        -- set the game status to 'Final' (2)
+        UPDATE FFSchedule SET Status=2 WHERE Week=${week};
+
+        `;
+
+        await sql.query(query, true).catch(error => console.log(error));
+    }
 
 
     return;
 
 }
 
-
+// keep list of players grouped by team for later lookup
+// this is because for fumbles, the recovering player's team is not always identified, so we need to look up that
+// players team to determine if the OFF or DEF recovered the fumble.
 const players = {};
 
 export async function getBoxScore(season: string, week: number, gameId: number): Promise<Array<IScoringTable>> {
@@ -254,26 +286,36 @@ export async function getBoxScore(season: string, week: number, gameId: number):
         home = boxScoreFeed.game.homeTeam.abbreviation,
         away = boxScoreFeed.game.awayTeam.abbreviation
 
+    // add players to lookup list
     players[home] = boxScoreFeed.stats.home.players;
     players[away] = boxScoreFeed.stats.away.players;
 
     const offensivePositions = ['QB', 'FB', 'RB', 'WR', 'TE', 'K'];
 
-    boxScore[home] = {
-        players: boxScoreFeed.stats.home.players.filter(ps => offensivePositions.includes(ps.player.position))
-    };
+    // boxScore[home] = {
+    //     players: boxScoreFeed.stats.home.players.filter(ps => offensivePositions.includes(ps.player.position))
+    // };
 
-    boxScore[away] = {
-        players: boxScoreFeed.stats.away.players.filter(ps => offensivePositions.includes(ps.player.position))
-    };
+    // boxScore[away] = {
+    //     players: boxScoreFeed.stats.away.players.filter(ps => offensivePositions.includes(ps.player.position))
+    // };
 
-    boxScore[home].players.forEach(player => {
+    // boxScore[home].players.forEach(player => {
+    //     dbRows = dbRows.concat(playerStatsToDBRows(week, home, player));
+    // });
+
+    // boxScore[away].players.forEach(player => {
+    //     dbRows = dbRows.concat(playerStatsToDBRows(week, away, player));
+    // });
+
+    boxScoreFeed.stats.home.players.filter(ps => offensivePositions.includes(ps.player.position) || ps.playerStats[0]?.fumbles?.fumOppRec).forEach(player => {
         dbRows = dbRows.concat(playerStatsToDBRows(week, home, player));
     });
 
-    boxScore[away].players.forEach(player => {
+    boxScoreFeed.stats.away.players.filter(ps => offensivePositions.includes(ps.player.position) || ps.playerStats[0]?.fumbles?.fumOppRec).forEach(player => {
         dbRows = dbRows.concat(playerStatsToDBRows(week, away, player));
     });
+
 
     // -----------------------------------------------------------------------------------------------------------------
 
@@ -287,13 +329,41 @@ export async function getBoxScore(season: string, week: number, gameId: number):
     return dbRows;
 }
 
+let gameId;
 
 //
 // Filter all the plays down to just scoring plays
 //
 function filterScoringPlays(feed: IPlayByPlayFeed): Array<IPlay> {
 
+    gameId = feed.game.id;
+
     return feed.plays.filter(play => {
+
+
+        forEachSubPlay(play, (subPlay, type) => {
+
+            const description = play.description;
+            const isLateral = /lateral/i.test(play.description);
+
+            if (isLateral) {
+
+                if (!subPlay.soloTacklingPlayer && !subPlay.assistedTacklingPlayer1 && !subPlay.assistedTacklingPlayer2) {
+
+                    console.log(`Game: ${gameId} ${play.description}\nNo tackling player(s) attributed when lateral occurs. Should be ${play.description.slice(play.description.lastIndexOf('('))}`);
+
+                }
+            }
+
+
+        });
+
+
+        if (play.description.includes("Cannon MUFFS catch")) {
+            debugger;
+        }
+
+
 
         // remove if 'no-play'
         if (Object.keys(play).some(key => play[key].isNoPlay)) return false;
@@ -303,7 +373,12 @@ function filterScoringPlays(feed: IPlayByPlayFeed): Array<IPlay> {
             isFumble(play).length ||
             play?.pass?.interceptingPlayer ||
             play?.extraPointAttempt?.isGood ||
-            play?.fieldGoalAttempt?.isGood;
+            play?.fieldGoalAttempt?.isGood ||
+            (   // Safety on pass
+                play?.pass?.interceptingPlayer === null &&
+                play?.pass?.stoppedAtPosition?.yardLine == 0 &&
+                play?.pass?.stoppedAtPosition?.team?.id === play.playStatus.teamInPossession.id
+            );
 
         if (
             !scoringPlay &&
@@ -379,10 +454,14 @@ function isFumble(play: IPlay): Array<IPlayFumble> {
             subFumble.recoveringPlayer &&
             subFumble.fumblingTeam.abbreviation !== lookUpPlayerTeam(subFumble.fumblingPlayer.id)) {
 
+
             subFumble.fumblingTeam.abbreviation = lookUpPlayerTeam(subFumble.fumblingPlayer.id);
 
         }
 
+        // we don't always want a fumble when recoveringTeam !== teamInPossession
+        // if a defense gets a turnover and then fumbles it back, we don't want the offense
+        // to get a fumble recovery.
         if (
             subFumble.recoveringTeam &&
             subFumble.recoveringTeam.abbreviation !== subFumble.fumblingTeam.abbreviation &&
@@ -392,6 +471,11 @@ function isFumble(play: IPlay): Array<IPlayFumble> {
         }
 
     });
+
+    if (fumbles.length > 1) {
+
+        debugger;
+    }
 
     return fumbles;
 }
@@ -407,6 +491,7 @@ function subPlayIsTD(play: IPlay): IPlayRush | IPlayFumble | IPlayLateralPass | 
 
     return tdPlay;
 }
+
 
 function forEachSubPlay(play: IPlay, callback: (subPlay: IPlayRush | IPlayFumble | IPlayLateralPass, type: string) => void): void {
 
@@ -551,7 +636,7 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
         //
         if (
             play.punt &&
-            play.punt.isTouchdown &&
+            play.punt.isTouchdown && play.punt.retrievingTeam &&
             play.punt.retrievingTeam?.id !== play.playStatus.teamInPossession.id
         ) {
             lines.push(
@@ -581,9 +666,6 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
                 }
             );
         }
-
-
-
 
         //
         // FG Block Return TD FBR
@@ -622,6 +704,47 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
                 }
             );
         }
+
+
+        //
+        // FG Miss Return for TD
+        //
+        if (
+            play.fieldGoalAttempt &&
+            play.fieldGoalAttempt.isBlocked === false &&
+            play.fieldGoalAttempt.isGood === false &&
+            subPlayTD &&
+            play.fieldGoalAttempt.team.id !== (subPlayTD as IPlayRush).team.id
+        ) {
+            const rush = subPlayTD as IPlayRush;
+            lines.push(
+                {   // D/ST
+                    Week: week,
+                    Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+                    TeamID: rush.team.abbreviation,
+                    PlayerIndex: rush.team.abbreviation,
+                    PlayerName: rush.team.abbreviation,
+                    ScoreType: 'TD',
+                    ScoreMethod: 'FGRT',
+                    Yards: rush.yardsRushed,
+                    Attempts: 0,
+                    Success: 0,
+                },
+                {   // Player
+                    Week: week,
+                    Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+                    TeamID: rush.team.abbreviation,
+                    PlayerIndex: rush.rushingPlayer.id,
+                    PlayerName: `${rush.rushingPlayer.firstName} ${rush.rushingPlayer.lastName}`,
+                    ScoreType: 'TD',
+                    ScoreMethod: 'FGRT',
+                    Yards: rush.yardsRushed,
+                    Attempts: 0,
+                    Success: 0,
+                }
+            );
+        }
+
 
         //
         // Interception TD Return
@@ -694,6 +817,13 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
             );
         }
 
+
+
+        //stoppedAtPosition
+
+
+
+
         //
         // Fumble Return for TD
         //
@@ -734,41 +864,82 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
 
 
         //
-        // Any Fumble Recovery
+        // XP Block Return
         //
         if (
-            fumbles.length
+            play.extraPointAttempt &&
+            play.extraPointAttempt.isBlocked &&
+            subPlayTD
         ) {
-            // it's possible to have multiple fumble recoveries on a single play
-            fumbles.forEach(fumble => {
-                lines.push(
-                    {   // D/ST
-                        Week: week,
-                        Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
-                        TeamID: fumble.recoveringTeam.abbreviation,
-                        PlayerIndex: fumble.recoveringTeam.abbreviation,
-                        PlayerName: fumble.recoveringTeam.abbreviation,
-                        ScoreType: 'TO',
-                        ScoreMethod: 'FUM',
-                        Yards: 0,
-                        Attempts: 1,
-                        Success: 1,
-                    },
-                    {   // Player
-                        Week: week,
-                        Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
-                        TeamID: fumble.recoveringTeam.abbreviation,
-                        PlayerIndex: fumble.recoveringPlayer.id,
-                        PlayerName: `${fumble.recoveringPlayer.firstName} ${fumble.recoveringPlayer.lastName}`,
-                        ScoreType: 'TO',
-                        ScoreMethod: 'FUM',
-                        Yards: 0,
-                        Attempts: 1,
-                        Success: 1,
-                    }
-                );
-            });
-        }
+            const team = (subPlayTD as IPlayRush).team || (subPlayTD as IPlayFumble).recoveringTeam;
+            const player = (subPlayTD as IPlayRush).rushingPlayer || (subPlayTD as IPlayFumble).recoveringPlayer;
+
+            lines.push(
+                {   // D/ST
+                    Week: week,
+                    Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+                    TeamID: team.abbreviation,
+                    PlayerIndex: team.abbreviation,
+                    PlayerName: team.abbreviation,
+                    ScoreType: 'XP',
+                    ScoreMethod: 'RET',
+                    Yards: 0,
+                    Attempts: 0,
+                    Success: 0,
+                },
+                {   // Player
+                    Week: week,
+                    Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+                    TeamID: team.abbreviation,
+                    PlayerIndex: player.id,
+                    PlayerName: `${player.firstName} ${player.lastName}`,
+                    ScoreType: 'XP',
+                    ScoreMethod: 'RET',
+                    Yards: 0,
+                    Attempts: 0,
+                    Success: 0,
+                }
+            );
+
+        };
+
+
+        //
+        // Any Fumble Recovery
+        //
+        // if (
+        //     fumbles.length
+        // ) {
+        //     // it's possible to have multiple fumble recoveries on a single play
+        //     fumbles.forEach(fumble => {
+        //         lines.push(
+        //             {   // D/ST
+        //                 Week: week,
+        //                 Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+        //                 TeamID: fumble.recoveringTeam.abbreviation,
+        //                 PlayerIndex: fumble.recoveringTeam.abbreviation,
+        //                 PlayerName: fumble.recoveringTeam.abbreviation,
+        //                 ScoreType: 'TO',
+        //                 ScoreMethod: 'FUM',
+        //                 Yards: 0,
+        //                 Attempts: 1,
+        //                 Success: 1,
+        //             },
+        //             {   // Player
+        //                 Week: week,
+        //                 Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+        //                 TeamID: fumble.recoveringTeam.abbreviation,
+        //                 PlayerIndex: fumble.recoveringPlayer.id,
+        //                 PlayerName: `${fumble.recoveringPlayer.firstName} ${fumble.recoveringPlayer.lastName}`,
+        //                 ScoreType: 'TO',
+        //                 ScoreMethod: 'FUM',
+        //                 Yards: 0,
+        //                 Attempts: 1,
+        //                 Success: 1,
+        //             }
+        //         );
+        //     });
+        // }
 
         //
         // TD Pass + Catch
@@ -874,14 +1045,15 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
         //
         if (
             (subPlayTD as IPlayRush)?.rushingPlayer &&
-            subPlayTD.team.id === play.playStatus.teamInPossession.id
+            subPlayTD.team.id === play.playStatus.teamInPossession.id &&
+            !play.punt
         ) {
             const rush = (subPlayTD as IPlayRush);
             lines.push(
                 {
                     Week: week,
                     Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
-                    TeamID: play.rush.team.abbreviation,
+                    TeamID: subPlayTD.team.abbreviation,
                     PlayerIndex: rush.rushingPlayer.id,
                     PlayerName: `${rush.rushingPlayer.firstName} ${rush.rushingPlayer.lastName}`,
                     ScoreType: 'TD',
@@ -971,10 +1143,37 @@ function playByPlayToDBRows(week: number, plays: Array<IPlay>, home: string, awa
                 //     //OwnerID: null
                 // }
             );
+
+        }
+
+
+        // Safety from Pass Play
+        if (
+            play.pass &&
+            play.pass.interceptingPlayer === null &&
+            play.pass.stoppedAtPosition?.yardLine == 0 &&
+            play.pass.stoppedAtPosition?.team?.id === play.playStatus.teamInPossession.id
+        ) {
+
+            lines.push(
+                {
+                    Week: week,
+                    Time: `${play.playStatus.quarter}-${play.playStatus.secondsElapsed}`,
+                    TeamID: opponent(play.pass.team.abbreviation, home, away),
+                    PlayerIndex: opponent(play.pass.team.abbreviation, home, away),
+                    PlayerName: opponent(play.pass.team.abbreviation, home, away),
+                    ScoreType: 'SAF',
+                    ScoreMethod: 'SAF',
+                    Yards: 0,
+                    Attempts: 0,
+                    Success: 0,
+                }
+            );
+
         }
 
         if (currentLineCount === lines.length) {
-            debugger;
+            //debugger;
             isTouchdown(play);
             isFumble(play);
 
@@ -1070,11 +1269,40 @@ function playerStatsToDBRows(week: number, nflTeam: string, stats: IPlayerStats)
         });
     }
 
+    if (stats.playerStats[0]?.fumbles?.fumOppRec) {
+
+        const fumbles = stats.playerStats[0].fumbles;
+
+        lines.push(
+            {   // D/ST
+                Week: week,
+                Time: null,
+                TeamID: nflTeam,
+                PlayerIndex: nflTeam,
+                PlayerName: nflTeam,
+                ScoreType: 'TO',
+                ScoreMethod: 'FUM',
+                Yards: 0,
+                Attempts: fumbles.fumOppRec,
+                Success: fumbles.fumOppRec,
+            },
+            {   // Player
+                Week: week,
+                Time: null,
+                TeamID: nflTeam,
+                PlayerIndex: stats.player.id,
+                PlayerName: `${stats.player.firstName} ${stats.player.lastName}`,
+                ScoreType: 'TO',
+                ScoreMethod: 'FUM',
+                Yards: 0,
+                Attempts: fumbles.fumOppRec,
+                Success: fumbles.fumOppRec,
+            });
+
+    }
+
     return lines;
-
 }
-
-
 
 // -- set the week
 // DECLARE ${week} smallint;
