@@ -8,8 +8,8 @@
     "start-watch": "nodemon server/server.ts",
     "dev": "concurrently --kill-others \"npm run start-watch\" \"npm run build-watch\"",
     "prebuild": "rm -rf dist",
-    "build": "parcel build ./client/index.html",
-    "start": "npm run build && ts-node server/server.ts"
+    "build": "parcel build ./client/index.html && tsc",
+    "start": "npm run build && node server/server.js"
   },
   "author": "Larry Joy",
   "license": "ISC",
