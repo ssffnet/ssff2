@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Main from "./Main";
 import Rosters from './Rosters'
 import Standings from './Standings'
-import Sidebar from './SideBar'
+import Sidebar from './Sidebar'
 import { BrowserRouter as Router, Switch, Route } from 'react-router-dom'
 import * as FaIcons from 'react-icons/fa';
 import * as IoIcons from 'react-icons/io';
