@@ -88,24 +88,24 @@ function getScores(): void {
 
     autoUpdates = !autoUpdates;
 
-    // if (!autoUpdates) {
-    //     clearTimeout(timer);
-    //     console.log('stop');
+    if (!autoUpdates) {
+        clearTimeout(timer);
+        console.log('stop');
 
-    // } else {
-    //     console.log('start');
-    //     timer = setInterval(() => {
-    //         axios.get(`/api/scores`)
-    //             .then(result => {
-    //                 console.log(result.data);
-    //             });
-    //     }, 1000 *  5);
-    // }
+    } else {
+        console.log('start');
+        timer = setInterval(() => {
+            axios.get(`/api/scores`)
+                .then(result => {
+                    console.log(result.data);
+                });
+        }, 1000 * 60 * 5);
+    }
 
-    axios.get(`/api/scores`)
-    .then(result => {
-        console.log(result.data);
-    });
+    // axios.get(`/api/scores`)
+    // .then(result => {
+    //     console.log(result.data);
+    // });
 
     return;
 }

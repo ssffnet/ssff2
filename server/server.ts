@@ -14,7 +14,7 @@ import * as espn from './api/espn';
 
 
 const app = express();
-const port = process.env.PORT || 5005;
+const port = process.env.PORT || 5006;
 
 app.use(cors());
 app.use(express.json());
@@ -89,7 +89,7 @@ app.post('/api/standings', async (req, res) => {
 app.get('/api/scores', async (req, res) => {
     console.log(`/api/scores`);
 
-    scores.getScoring(12);
+    scores.getScoring(13);
 
     res.send({});
 });
